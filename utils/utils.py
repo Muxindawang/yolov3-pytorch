@@ -90,6 +90,7 @@ def ap_per_class(tp, conf, pred_cls, target_cls):
 
     # Find unique classes
     unique_classes = np.unique(target_cls)
+    # 找到真实目标中存在的类别
 
     # Create Precision-Recall curve and compute AP for each class
     ap, p, r = [], [], []
@@ -140,9 +141,9 @@ def compute_ap(recall, precision):
     # correct AP calculation
     # first append sentinel values at the end
     # rp曲线   recall从0-1
-    mrec = np.concatenate(([0.0], recall, [1.0]))
-    mpre = np.concatenate(([0.0], precision, [0.0]))
-
+    mrec = np.concatenate(([0.0], recall, [1.0]))     # [0.     0.0666 0.1333 0.1333 0.4    0.4666 1.    ]
+    mpre = np.concatenate(([0.0], precision, [0.0]))   # [0.     1.     0.6666 0.6666 0.4285 0.3043 0.    ]
+    # print(mrec, mpre)
     # compute the precision envelope
     for i in range(mpre.size - 1, 0, -1):
         mpre[i - 1] = np.maximum(mpre[i - 1], mpre[i])
@@ -150,8 +151,7 @@ def compute_ap(recall, precision):
 
     # to calculate area under PR curve, look for points
     # where X axis (recall) changes value
-    i = np.where(mrec[1:] != mrec[:-1])[0]
-
+    i = np.where(mrec[1:] != mrec[:-1])[0]   # precision前后两个值不一样的点
     # and sum (\Delta recall) * prec
     ap = np.sum((mrec[i + 1] - mrec[i]) * mpre[i + 1])
     # (recall[i+1] - recall[i])*max(precision when recall>=recall[i+1])
@@ -159,19 +159,24 @@ def compute_ap(recall, precision):
 
 
 def get_batch_statistics(outputs, targets, iou_threshold):
-    """ Compute true positives, predicted scores and predicted labels per sample """
+    """
+     Compute true positives, predicted scores and predicted labels per sample
+    获取测试样本的各项指标
+    """
     batch_metrics = []
 
     # print "outputs len: {}".format(len(outputs))
     # print "targets shape: {}".format(targets.shape)
     # outputs: (batch_size, pred_boxes_num, 7) 7 =》x,y,w,h,conf,class_conf,class_pred
     # target:  (num, 6)  6=>(batch_index, cls, center_x, center_y, widht, height)
+    # len(outputs) = batch_size
     for sample_i in range(len(outputs)):
 
         if outputs[sample_i] is None:
             continue
 
         # output: (pred_boxes_num, 7) 7 =》x,y,w,h,conf,class_conf,class_pred
+        # 每一张图片
         output = outputs[sample_i]
         # print "output: {}".format(output.shape)
 
@@ -185,9 +190,11 @@ def get_batch_statistics(outputs, targets, iou_threshold):
         # 获得真实目标框的类别label
         # annotations = targets[targets[:, 0] == sample_i][:, 1:]
         annotations = targets[targets[:, 0] == sample_i]
+        # targets[:,0] 是图片ID  找出targets中 图片索引为sample-i  的targets   annotations.shape (num_of_== , 6)
         annotations = annotations[:, 1:] if len(annotations) else []
+        # shape  (num_of_== , 5)   类别索引 xywh
         target_labels = annotations[:, 0] if len(annotations) else []
-
+        # shape  (num_of_ ==, 1)   类别索引
         if len(annotations):  # len(annotations)>0: 表示这张图片有真实的目标框
             detected_boxes = []
             target_boxes = annotations[:, 1:]  # 真实目标框的x,y,w,h
@@ -289,7 +296,7 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
 
         # Object confidence times class confidence
         # 计算处理：先选取每个预测框所代表的最大类别值，再将这个值乘以对应的anchor置信度，这样将类别预测精准度和置信度都考虑在内。
-        # 每个置信预测框都会对应一个score值
+        # 每个置信预测框都会对应一个score值   类别预测精准度*anchor置信度
         score = image_pred[:, 4] * image_pred[:, 5:].max(1)[0]
         # Sort by it
         # 基于score值，将置信预测框从大到小进行排序
@@ -340,10 +347,10 @@ def non_max_suppression(prediction, conf_thres=0.5, nms_thres=0.4):
 def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     # pred_boxes => (batch_size, anchor_num, gride, gride, 4)
     # pred_cls => (batch_size, anchor_num, gride, gride, 80)
-    # targets => (num, 6)  6=>(batch_index, cls, center_x, center_y, widht, height)
+    # targets => (num, 6)  6=>(batch_index, cls, center_x, center_y, widht, height)   num为数据集中目标的个数
     # 真实边界框
     # anchors => (3, 2)
-
+    # 制造真实边界框
     ByteTensor = torch.cuda.ByteTensor if pred_boxes.is_cuda else torch.ByteTensor
     FloatTensor = torch.cuda.FloatTensor if pred_boxes.is_cuda else torch.FloatTensor
 
@@ -394,7 +401,8 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     # ---------------------------得到目标实体框obj_mask和目标非实体框noobj_mask  start----------------------------
     # Set masks
     # 表示batch中的第b张图片，其网格坐标为(gj, gi)的单元网格存在目标框的中心点，该目标框所匹配的最优anchor索引为best_n
-    obj_mask[b, best_n, gj, gi] = 1  # b是指第几个targets 对目标实体框中心点所在的单元网格，其最优anchor设置为1
+    # b, best_n, gj, gi 为索引
+    obj_mask[b, best_n, gj, gi] = 1
     noobj_mask[b, best_n, gj, gi] = 0  # 对目标实体框中心点所在的单元网格，其最优anchor设置为0 （与obj_mask相反）
 
     # Set noobj mask to zero where iou exceeds ignore threshold
@@ -416,7 +424,9 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     # 传入target的归一化是实际的x,y,w,h / img_size. 即实际x,y,w,h在img_size中的比例，
     # 此处的归一化中，中心坐标x,y是基于单元网络的，w,h是基于anchor框，此处归一化的x,y,w,h，也是模型要拟合的值。
     tx[b, best_n, gj, gi] = gx - gx.floor()
+    # anchor全部放在13*13网格的网格线交叉点处  实际的边界框中心在网格之内  所以  tx表示anchor与实际的距离
     ty[b, best_n, gj, gi] = gy - gy.floor()
+
     # Width and height
     tw[b, best_n, gj, gi] = torch.log(gw / anchors[best_n][:, 0] + 1e-16)
     th[b, best_n, gj, gi] = torch.log(gh / anchors[best_n][:, 1] + 1e-16)
@@ -425,7 +435,8 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
 
 
     # One-hot encoding of label
-    # 表示batch中的第b张图片，其网格坐标为(gj, gi)的单元网格存在目标框的中心点，该目标框所匹配的最优anchor索引为best_n，其类别为target_labels
+    # 表示batch中的第b张图片，其网格坐标为(gj, gi)的单元网格存在目标框的中心点，该目标框所匹配的最优anchor索引为best_n，
+    # 其类别index为target_labels
     tcls[b, best_n, gj, gi, target_labels] = 1
 
     # Compute label correctness and iou at best anchor
@@ -444,3 +455,11 @@ def build_targets(pred_boxes, pred_cls, target, anchors, ignore_thres):
     # tcls：目标实体框的所属类别
     # tconf：所有anchor的目标置信度
     return iou_scores, class_mask, obj_mask, noobj_mask, tx, ty, tw, th, tcls, tconf
+
+
+if __name__ == '__main__':
+    recall = np.array([0.0666,0.1333,0.1333,0.4,0.4666])
+    precision = np.array([1.,0.6666,0.6666,0.4285,0.3043])
+
+    ap = compute_ap(recall, precision)
+    print(ap)

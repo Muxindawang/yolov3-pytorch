@@ -115,7 +115,7 @@ class ListDataset(Dataset):
             # Extract coordinates for unpadded + unscaled image
             # label: (center_x, center_y, width, height)
             # xywh2xyxy
-            x1 = w_factor * (boxes[:, 1] - boxes[:, 3] / 2)
+            x1 = w_factor * (boxes[:, 1] - boxes[:, 3] / 2)  # 换到原图片中的坐标
             y1 = h_factor * (boxes[:, 2] - boxes[:, 4] / 2)
             x2 = w_factor * (boxes[:, 1] + boxes[:, 3] / 2)
             y2 = h_factor * (boxes[:, 2] + boxes[:, 4] / 2)
@@ -124,10 +124,11 @@ class ListDataset(Dataset):
             y1 += pad[2]
             x2 += pad[1]
             y2 += pad[3]
+            # 这里好像有问题,应该x都加0 y都加1
             # Returns (x, y, w, h)
             # print boxes
             # print w_factor, h_factor, padded_w, padded_h
-            # 归一化 xywh
+            # 归一化 xywh 之前换算到了原图片尺寸的坐标 这一步换算到新图片尺寸的坐标下  归一化
             boxes[:, 1] = ((x1 + x2) / 2) / padded_w
             boxes[:, 2] = ((y1 + y2) / 2) / padded_h
             # boxes[:, 3] *= w_factor / padded_w
@@ -138,12 +139,16 @@ class ListDataset(Dataset):
             # print boxes
             targets = torch.zeros((len(boxes), 6))
             targets[:, 1:] = boxes
-            # targets tensor([[0, boxes]])
+            # 第一个位置是留给batch的  target真实边界框
         # Apply augmentations数据增强
         if self.augment:
             if np.random.random() < 0.5:
                 img, targets = horisontal_flip(img, targets)
-
+        """
+        len(boxes):1
+        boxes: tensor([[45, 0.479492 0.688771 0.955609 0.595500]],dtype=torch.float32)
+        targets: tensor([[0.000000,45, 0.479492 0.688771 0.955609 0.595500]])
+        """
         return img_path, img, targets
 
     def collate_fn(self, batch):
@@ -154,7 +159,7 @@ class ListDataset(Dataset):
         # Add sample index to targets
         for i, boxes in enumerate(targets):
             boxes[:, 0] = i
-            # 一张图片的boxes[:,0]是一样的 也就是image的ID
+            # 一张图片的boxes[:,0]是图片的index  用于判断属于哪张图片
         targets = torch.cat(targets, 0)
         # Selects new image size every tenth batch
         if self.multiscale and self.batch_count % 10 == 0:
@@ -162,7 +167,12 @@ class ListDataset(Dataset):
         # Resize images to input shape
         imgs = torch.stack([resize(img, self.img_size) for img in imgs])
         self.batch_count += 1
+        # targets num*6  边界框所在图片索引  类别下标  归一化后的xywh
         return paths, imgs, targets
 
     def __len__(self):
         return len(self.img_files)
+
+
+if __name__ == "__main__":
+    dataset = ListDataset(train_path, augment=True, multiscale=opt.multiscale_training)

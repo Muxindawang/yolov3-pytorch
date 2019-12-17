@@ -177,6 +177,7 @@ class YOLOLayer(nn.Module):
     def forward(self, x, targets=None, img_dim=None):
         # 计算总损失 以及 预测结果outputs  targets为真实边界框  用于计算ap recall等
         # Tensors for cuda support
+        #
         FloatTensor = torch.cuda.FloatTensor if x.is_cuda else torch.FloatTensor
         LongTensor = torch.cuda.LongTensor if x.is_cuda else torch.LongTensor
         ByteTensor = torch.cuda.ByteTensor if x.is_cuda else torch.ByteTensor
@@ -202,7 +203,7 @@ class YOLOLayer(nn.Module):
         y = torch.sigmoid(prediction[..., 1])  # Center y
         w = prediction[..., 2]  # Width
         h = prediction[..., 3]  # Height
-        pred_conf = torch.sigmoid(prediction[..., 4])  # Conf置信度   应该是[objectness*class]不是特别确定
+        pred_conf = torch.sigmoid(prediction[..., 4])  # Conf置信度
         pred_cls = torch.sigmoid(prediction[..., 5:])  # Cls pred. (batch_size, num_anchor, gride_size, grid_size, cls)
 
         # If grid size does not match current we compute new offsets
@@ -241,6 +242,7 @@ class YOLOLayer(nn.Module):
         if targets is None:
             # targets 是指ground truth
             return output, 0
+        # 计算loss
         else:
             # pred_boxes => (batch_size, anchor_num, gride, gride, 4)
             # pred_cls => (batch_size, anchor_num, gride, gride, 80)
@@ -328,6 +330,7 @@ class Darknet(nn.Module):
 
     def __init__(self, config_path, img_size=416):
         super(Darknet, self).__init__()
+        # 解析cfg文件
         self.module_defs = parse_model_config(config_path)
         self.hyperparams, self.module_list = create_modules(self.module_defs)
         self.yolo_layers = [layer[0] for layer in self.module_list if hasattr(layer[0], "metrics")]
@@ -337,9 +340,11 @@ class Darknet(nn.Module):
         self.header_info = np.array([0, 0, 0, self.seen, 0], dtype=np.int32)
 
     def forward(self, x, targets=None):
+        # x是input images
         img_dim = x.shape[2]
         loss = 0
         layer_outputs, yolo_outputs = [], []
+        # 模型的每一层输出保存在layer_outputs列表中   layer_outputs.append(x)
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             if module_def["type"] in ["convolutional", "upsample", "maxpool"]:
                 x = module(x)
@@ -352,6 +357,9 @@ class Darknet(nn.Module):
                 # shortcut层 和前面的层进行相加
             elif module_def["type"] == "yolo":
                 # yolo layer forward return outputs loss
+                # yolo层有三个,没一个特征图的每一个cell会预测三个bounding boxes 每一个bounding box会预测三类值
+                # 位置 (中心坐标txty,高宽bhbw)  objectness prediction目标性评分,即这块位置是目标的坑女性有多大,这一步在predict之前进行,可以去掉不必要的anchor
+                # N个类别
                 x, layer_loss = module[0](x, targets, img_dim)
                 loss += layer_loss
                 yolo_outputs.append(x)

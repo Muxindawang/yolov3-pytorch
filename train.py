@@ -2,13 +2,13 @@
 from __future__ import division
 
 from models import *
-# from utils.logger import *
+from utils.logger import *
 from utils.utils import *
 from utils.datasets import *
 from utils.parse_config import *
 from test import evaluate
 
-# from terminaltables import AsciiTable
+from terminaltables import AsciiTable
 
 import os
 import sys
@@ -57,14 +57,16 @@ if __name__ == "__main__":
     opt = parser.parse_args()
     print(opt)
 
-    # logger = Logger("logs")
+    logger = Logger("logs")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     os.makedirs("output", exist_ok=True)
     os.makedirs("checkpoints", exist_ok=True)
-
     # Get data configuration
+
+    """1.加载网络"""
+
     data_config = parse_data_config(opt.data_config)    # 导入coco.data
     """
     classes= 80
@@ -81,6 +83,7 @@ if __name__ == "__main__":
     # Initiate model
     model = Darknet(opt.model_def).to(device)
     model.apply(weights_init_normal)
+    # 自定义初始化方式
 
     # If specified we start from checkpoint
     if opt.pretrained_weights:
@@ -90,6 +93,8 @@ if __name__ == "__main__":
             model.load_darknet_weights(opt.pretrained_weights)   # 家在模型权重
 
     # model = torch.nn.DataParallel(model).cuda()
+
+    """2.放进DataLoader"""
 
     # Get dataloader
     dataset = ListDataset(train_path, augment=True, multiscale=opt.multiscale_training)
@@ -101,6 +106,7 @@ if __name__ == "__main__":
         pin_memory=True,
         collate_fn=dataset.collate_fn,
     )
+    # collate_off 对样本进行随机resize
     # 优化器
     optimizer = torch.optim.Adam(model.parameters())
 
@@ -120,7 +126,9 @@ if __name__ == "__main__":
         "conf_obj",
         "conf_noobj",
     ]
-    # 迭代开始
+
+    """3.开始训练"""
+
     for epoch in range(opt.epochs):
         model.train()
         start_time = time.time()
@@ -138,7 +146,7 @@ if __name__ == "__main__":
                 # Accumulates gradient before each step
                 optimizer.step()
                 optimizer.zero_grad()
-
+            """打印训练进程"""
             # ----------------
             #   Log progress
             # ----------------
@@ -166,9 +174,9 @@ if __name__ == "__main__":
                             tensorboard_log += [("{}_{}".format(name, j+1), metric)]
                             # ('loss_1', 77.54456454)
                 tensorboard_log += [("loss", loss.item())]
-                # logger.list_of_scalars_summary(tensorboard_log, batches_done)
+                logger.list_of_scalars_summary(tensorboard_log, batches_done)
 
-            # log_str += AsciiTable(metric_table).table
+            log_str += AsciiTable(metric_table).table
             log_str += "\nTotal loss {}".format(loss.item())
 
             # Determine approximate time left for epoch
@@ -182,7 +190,7 @@ if __name__ == "__main__":
 
             # if batch_i > 10:
             #     break
-
+        """模型评估"""
         if epoch % opt.evaluation_interval == 0:
             print("\n---- Evaluating Model ----")
             # Evaluate the model on the validation set
@@ -201,14 +209,14 @@ if __name__ == "__main__":
                 ("val_mAP", AP.mean()),
                 ("val_f1", f1.mean()),
             ]
-            # logger.list_of_scalars_summary(evaluation_metrics, epoch)
+            logger.list_of_scalars_summary(evaluation_metrics, epoch)
 
             # Print class APs and mAP
             ap_table = [["Index", "Class name", "AP"]]
             for i, c in enumerate(ap_class):
                 ap_table += [[c, class_names[c], "%.5f" % AP[i]]]
-            # print(AsciiTable(ap_table).table)
+            print(AsciiTable(ap_table).table)
             print("---- mAP {}".format(AP.mean()))
-
+        """保存权重文件"""
         if epoch % opt.checkpoint_interval == 0:
             torch.save(model.state_dict(), "checkpoints/yolov3_ckpt_%d.pth" % epoch)

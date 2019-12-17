@@ -39,11 +39,14 @@ if __name__ == "__main__":
     print(opt)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    # 创建多级目录
     os.makedirs("output", exist_ok=True)
 
     # Set up model
+    """1.调用Darknet模型"""
     model = Darknet(opt.model_def, img_size=opt.img_size).to(device)
+
+    """2.获取检测框"""
 
     if opt.weights_path.endswith(".weights"):
         # Load darknet weights
@@ -60,7 +63,7 @@ if __name__ == "__main__":
         shuffle=False,
         num_workers=opt.n_cpu,
     )
-
+    # ImageFolder是遍历文件夹下的测试图片,__个体特么__会把图像归一化处理成416*416
     classes = load_classes(opt.class_path)  # Extracts class labels from file
 
     Tensor = torch.cuda.FloatTensor if torch.cuda.is_available() else torch.FloatTensor
@@ -77,6 +80,7 @@ if __name__ == "__main__":
 
         # Get detections
         with torch.no_grad():
+            # 把图像放到模型中,得到检测结果,这里是通过darknet的forward()函数得到检测结果
             detections = model(input_imgs)
             print(detections.shape)
             detections = non_max_suppression(detections, opt.conf_thres, opt.nms_thres)
@@ -91,8 +95,10 @@ if __name__ == "__main__":
         # Save image and detections
         imgs.extend(img_paths)
         img_detections.extend(detections)
+        # extend用于在列表结尾一次性追加另一个序列中的多个值
 
     # Bounding-box colors
+    """3.绘制bounding box"""
     cmap = plt.get_cmap("Accent")
     colors = [cmap(i) for i in np.linspace(0, 1, 20)]
 
